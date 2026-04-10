@@ -5,7 +5,7 @@ import { searchYouTube, getChannelStats, getRecentChannelVideos } from './youtub
 const delay = (ms: number) => new Promise((res) => setTimeout(res, ms))
 
 export type AgentLog = {
-  type: 'status' | 'thought' | 'tool_call' | 'tool_result' | 'final' | 'error'
+  type: 'status' | 'thought' | 'tool_call' | 'tool_result' | 'final' | 'error' | 'videos'
   message: string
   data?: any
 }
@@ -138,10 +138,16 @@ When you have collected enough accurate data, write a detailed structural markdo
       try {
         if (functionName === 'search_youtube') {
           toolResult = await searchYouTube(args.query, args.maxResults || 10, args.order || 'relevance')
+          if (Array.isArray(toolResult) && toolResult.length > 0) {
+            onLog({ type: 'videos', message: 'Discovered videos via search', data: toolResult })
+          }
         } else if (functionName === 'get_channel_stats') {
           toolResult = await getChannelStats(args.channelId)
         } else if (functionName === 'get_recent_videos') {
           toolResult = await getRecentChannelVideos(args.channelId, args.maxResults || 5)
+          if (Array.isArray(toolResult) && toolResult.length > 0) {
+            onLog({ type: 'videos', message: 'Fetched recent channel videos', data: toolResult })
+          }
         } else {
           toolResult = { error: 'Unknown tool' }
         }

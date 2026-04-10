@@ -133,10 +133,16 @@ export default function Home() {
               const log: AgentLog = JSON.parse(event.slice(6))
               setAgentLogs((prev) => [...prev, log])
 
-              if (log.type === 'final') {
+              if (log.type === 'videos' && Array.isArray(log.data)) {
+                // To avoid duplicate videos, merge based on video_id
+                setVideos((prev) => {
+                  const existingIds = new Set(prev.map(v => v.video_id))
+                  const newVideos = log.data.filter(v => v.video_id && !existingIds.has(v.video_id))
+                  return [...prev, ...newVideos]
+                })
+              } else if (log.type === 'final') {
                 setAgentSummary(log.message)
-              }
-              if (log.type === 'error') {
+              } else if (log.type === 'error') {
                 setError(log.message)
               }
             } catch (err) {

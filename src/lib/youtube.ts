@@ -122,14 +122,33 @@ export async function getRecentChannelVideos(channelId: string, maxResults = 5) 
 
   const videoIds = searchData.items.map((item: any) => item.id.videoId).join(',')
   const videoRes = await fetch(
-    `${BASE_URL}/videos?part=snippet,statistics&id=${videoIds}&key=${API_KEY}`
+    `${BASE_URL}/videos?part=snippet,statistics,contentDetails&id=${videoIds}&key=${API_KEY}`
   )
   const videoData = await videoRes.json()
 
+  // Get subscriber count as well to match the standard card
+  const channelRes = await fetch(
+    `${BASE_URL}/channels?part=statistics&id=${channelId}&key=${API_KEY}`
+  )
+  const channelData = await channelRes.json()
+  const subs = channelData.items?.length ? parseInt(channelData.items[0].statistics.subscriberCount || '0') : 0
+
   return videoData.items.map((item: any) => ({
-    id: item.id,
+    video_id: item.id,
     title: item.snippet.title,
-    viewCount: parseInt(item.statistics.viewCount || '0'),
-    publishedAt: item.snippet.publishedAt,
+    channel_name: item.snippet.channelTitle,
+    channel_id: item.snippet.channelId,
+    thumbnail_url:
+      item.snippet.thumbnails?.maxres?.url ||
+      item.snippet.thumbnails?.high?.url ||
+      item.snippet.thumbnails?.medium?.url ||
+      '',
+    view_count: parseInt(item.statistics.viewCount || '0'),
+    like_count: parseInt(item.statistics.likeCount || '0'),
+    comment_count: parseInt(item.statistics.commentCount || '0'),
+    duration: parseDuration(item.contentDetails.duration),
+    published_at: item.snippet.publishedAt,
+    description: item.snippet.description?.slice(0, 300) || '',
+    subscriber_count: subs,
   }))
 }
