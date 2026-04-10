@@ -1,13 +1,18 @@
 import Groq from 'groq-sdk'
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
-
 // Used ONLY for smart search — 1 call per user request
 export async function generateSearchQueries(
   videoTitle: string,
   videoDescription: string,
   channelName: string
 ): Promise<string[]> {
+  if (!process.env.GROQ_API_KEY) {
+    console.warn('GROQ_API_KEY is not set')
+    return []
+  }
+
+  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
+
   const prompt = `You are a YouTube research assistant. A user wants to find YouTube channels SIMILAR to this video:
 
 Title: "${videoTitle}"
