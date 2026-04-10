@@ -82,7 +82,11 @@ If looking for "low sub" channels with "high views", you MUST:
 2. Examine the returned channel IDs.
 3. Call get_channel_stats on them to verify sub count.
 4. Call get_recent_videos to verify their recent views.
-When you have collected enough accurate data, write a detailed structural markdown summary of your findings as your final response.`
+
+IMPORTANT RULES FOR FINAL RESPONSE:
+- When you have collected enough accurate data, write a detailed structural markdown summary of your findings.
+- DO NOT list out individual videos, video IDs, their titles, or their view counts in your text response. The user interface will automatically extract all videos you discover and display them as beautiful visual cards below your text.
+- Focus ONLY on summarizing the analytical findings: the channel names, their growth patterns, why they fit the criteria, and high-level trends.`
     },
     { role: 'user', content: prompt }
   ]

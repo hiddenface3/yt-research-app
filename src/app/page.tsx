@@ -231,7 +231,12 @@ export default function Home() {
             </div>
           )}
 
-          {!agentMode && <VideoGrid videos={videos} loading={loading} />}
+          {videos.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-lg font-bold text-white mb-4">Discovered Videos</h3>
+              <VideoGrid videos={videos} loading={loading && !agentSummary} />
+            </div>
+          )}
 
           {!loading && videos.length === 0 && hasSearched && !agentSummary && !error && (
             <div className="text-center py-20">
