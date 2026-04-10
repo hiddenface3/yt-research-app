@@ -1,9 +1,10 @@
 'use client'
-import { useState } from 'react'
-import { Play, Sparkles, TrendingUp, BarChart2, Link } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { Play, Sparkles, TrendingUp, BarChart2, Link, Bot, TerminalSquare, AlertCircle, CheckCircle2 } from 'lucide-react'
 import SearchBar from '@/components/SearchBar'
 import VideoGrid from '@/components/VideoGrid'
 import Sidebar from '@/components/Sidebar'
+
 
 type Video = {
   video_id: string
@@ -19,10 +20,11 @@ type Video = {
   description?: string
 }
 
-type SmartMeta = {
-  sourceVideo: { title: string; channelName: string; videoId: string }
-  queries: string[]
-} | null
+type AgentLog = {
+  type: 'status' | 'thought' | 'tool_call' | 'tool_result' | 'final' | 'error'
+  message: string
+  data?: any
+}
 
 export default function Home() {
   const [videos, setVideos] = useState<Video[]>([])
@@ -31,16 +33,28 @@ export default function Home() {
   const [error, setError] = useState('')
   const [sidebarRefresh, setSidebarRefresh] = useState(0)
   const [hasSearched, setHasSearched] = useState(false)
-  const [smartMeta, setSmartMeta] = useState<SmartMeta>(null)
+  
+  // Agent mode states
+  const [agentMode, setAgentMode] = useState(false)
+  const [agentLogs, setAgentLogs] = useState<AgentLog[]>([])
+  const [agentSummary, setAgentSummary] = useState('')
+  const logContainerRef = useRef<HTMLDivElement>(null)
 
-  // Regular text search
+  // Auto-scroll logs
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
+    }
+  }, [agentLogs])
+
   const handleSearch = async (query: string, order: string) => {
     setLoading(true)
     setError('')
     setCurrentQuery(query)
     setHasSearched(true)
     setVideos([])
-    setSmartMeta(null)
+    setAgentLogs([])
+    setAgentSummary('')
 
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&order=${order}&max=20`)
@@ -55,24 +69,84 @@ export default function Home() {
     }
   }
 
-  // AI-powered smart search from YouTube URL
   const handleSmartSearch = async (url: string) => {
+    if (agentMode) {
+      // Run deep research agent
+      return runAgent(url)
+    }
+
+    // Standard smart search
     setLoading(true)
     setError('')
     setCurrentQuery(url)
     setHasSearched(true)
     setVideos([])
-    setSmartMeta(null)
+    setAgentLogs([])
+    setAgentSummary('')
 
     try {
       const res = await fetch(`/api/smart-search?input=${encodeURIComponent(url)}`)
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       setVideos(data.videos || [])
-      setSmartMeta({ sourceVideo: data.sourceVideo, queries: data.queries })
       setSidebarRefresh((n) => n + 1)
     } catch (err: any) {
-      setError(err.message || 'Smart search failed. Please try again.')
+      setError(err.message || 'Smart search failed.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const runAgent = async (prompt: string) => {
+    setLoading(true)
+    setError('')
+    setCurrentQuery(prompt)
+    setHasSearched(true)
+    setVideos([])
+    setAgentSummary('')
+    setAgentLogs([{ type: 'status', message: 'Connecting to Groq Agent...' }])
+
+    try {
+      const res = await fetch('/api/agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      })
+
+      if (!res.body) throw new Error('No stream body')
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const events = buffer.split('\n\n')
+        buffer = events.pop() || ''
+
+        for (const event of events) {
+          if (event.startsWith('data: ')) {
+            try {
+              const log: AgentLog = JSON.parse(event.slice(6))
+              setAgentLogs((prev) => [...prev, log])
+
+              if (log.type === 'final') {
+                setAgentSummary(log.message)
+              }
+              if (log.type === 'error') {
+                setError(log.message)
+              }
+            } catch (err) {
+              console.error('Failed to parse SSE', event)
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      setError(err.message || 'Agent crashed.')
     } finally {
       setLoading(false)
     }
@@ -80,7 +154,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Header */}
       <header className="border-b border-[#1e1e1e] bg-[#0f0f0f]/90 backdrop-blur-sm sticky top-0 z-40">
         <div className="max-w-screen-xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5 flex-shrink-0">
@@ -91,27 +164,34 @@ export default function Home() {
           </div>
 
           <div className="flex-1 flex justify-center">
-            <SearchBar onSearch={handleSearch} onSmartSearch={handleSmartSearch} loading={loading} />
+            <SearchBar onSearch={(q, o) => agentMode ? runAgent(q) : handleSearch(q, o)} onSmartSearch={handleSmartSearch} loading={loading} />
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
-            <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#7c3aed]/30 bg-[#7c3aed]/10 text-xs text-[#a78bfa]">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Groq AI Active</span>
-            </div>
+            <button 
+              onClick={() => setAgentMode(!agentMode)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-all ${
+                agentMode 
+                  ? 'border-[#7c3aed] bg-[#7c3aed]/10 text-[#a78bfa]' 
+                  : 'border-[#222] bg-[#1a1a1a] text-[#888] hover:text-white'
+              }`}
+            >
+              <Bot className="w-4 h-4" />
+              <span className="text-xs font-medium hidden md:block">
+                Deep Research Agent
+              </span>
+            </button>
           </div>
         </div>
       </header>
 
-      {/* Body */}
-      <div className="flex flex-1 max-w-screen-xl mx-auto w-full px-4 py-6 gap-6">
-        <Sidebar
-          onSelectSearch={(q) => handleSearch(q, 'relevance')}
-          refreshTrigger={sidebarRefresh}
-        />
+      <div className="flex flex-1 max-w-screen-xl mx-auto w-full px-4 py-6 gap-6 overflow-hidden">
+        {/* Only show standard sidebar if not in agent mode or no agent logs */}
+        {!agentMode && agentLogs.length === 0 && (
+          <Sidebar onSelectSearch={(q) => handleSearch(q, 'relevance')} refreshTrigger={sidebarRefresh} />
+        )}
 
-        <main className="flex-1 min-w-0">
-          {/* Hero */}
+        <main className={`flex-1 min-w-0 flex flex-col ${agentMode && agentLogs.length > 0 ? 'border-r border-[#1e1e1e] pr-6' : ''}`}>
           {!hasSearched && !loading && (
             <div className="flex flex-col items-center justify-center py-20 text-center gap-6">
               <div className="w-16 h-16 rounded-2xl bg-[#ff3c3c]/10 border border-[#ff3c3c]/20 flex items-center justify-center">
@@ -120,93 +200,75 @@ export default function Home() {
               <div>
                 <h1 className="text-3xl font-bold text-white mb-2">YT Research Tool</h1>
                 <p className="text-[#666] text-sm max-w-md">
-                  Search YouTube channels and videos — or paste a URL to find similar content using Groq AI.
+                  Search YouTube channels, or toggle <b>Deep Research Agent</b> to let Groq analyze channels iteratively.
                 </p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-xl w-full mt-4">
-                {[
-                  { icon: <TrendingUp className="w-4 h-4" />, label: 'Trending Niches', desc: "Find what's blowing up", color: 'text-[#ff3c3c]' },
-                  { icon: <Link className="w-4 h-4" />, label: 'Paste a URL', desc: 'Find similar channels', color: 'text-[#7c3aed]' },
-                  { icon: <Sparkles className="w-4 h-4" />, label: 'Groq AI Powered', desc: 'Smart query generation', color: 'text-[#a78bfa]' },
-                ].map((f) => (
-                  <div key={f.label} className="p-4 rounded-xl border border-[#1e1e1e] bg-[#141414] text-left">
-                    <div className={`${f.color} mb-2`}>{f.icon}</div>
-                    <div className="text-sm font-medium text-white">{f.label}</div>
-                    <div className="text-xs text-[#555] mt-0.5">{f.desc}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-2 justify-center">
-                {['AI channels 2025', 'history storytelling', 'new small channels', 'n8n automation'].map((q) => (
-                  <button key={q} onClick={() => handleSearch(q, 'relevance')}
-                    className="px-3 py-1.5 rounded-full border border-[#222] bg-[#1a1a1a] text-xs text-[#888] hover:text-white hover:border-[#333] transition-colors">
-                    {q}
-                  </button>
-                ))}
-              </div>
             </div>
           )}
 
-          {/* Smart search result banner */}
-          {smartMeta && !loading && (
-            <div className="mb-4 p-4 rounded-xl border border-[#7c3aed]/30 bg-[#7c3aed]/10">
-              <div className="flex items-center gap-2 mb-2">
-                <Sparkles className="w-4 h-4 text-[#a78bfa]" />
-                <span className="text-sm font-medium text-[#a78bfa]">Groq AI analysed the video</span>
-              </div>
-              <p className="text-xs text-[#888] mb-2">
-                Source: <span className="text-white">{smartMeta.sourceVideo.title}</span>
-                {' '} by <span className="text-[#aaa]">{smartMeta.sourceVideo.channelName}</span>
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <span className="text-[10px] text-[#555] self-center">Searched for:</span>
-                {smartMeta.queries.map((q, i) => (
-                  <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-[#7c3aed]/20 text-[#a78bfa] border border-[#7c3aed]/20">
-                    {q}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Results header */}
-          {(hasSearched || loading) && (
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-base font-semibold text-white">
-                  {loading
-                    ? smartMeta !== null || currentQuery.includes('youtu')
-                      ? 'Groq is analyzing & searching...'
-                      : 'Searching YouTube...'
-                    : smartMeta
-                    ? `Similar channels found`
-                    : `Results for "${currentQuery}"`}
-                </h2>
-                {!loading && videos.length > 0 && (
-                  <p className="text-xs text-[#555] mt-0.5">{videos.length} videos found • Saved to history</p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Error */}
           {error && (
             <div className="p-4 rounded-xl border border-[#ff3c3c]/30 bg-[#ff3c3c]/10 text-sm text-[#ff8888] mb-4">
               {error}
             </div>
           )}
 
-          {/* Grid */}
-          <VideoGrid videos={videos} loading={loading} />
+          {/* Agent Summary output */}
+          {agentSummary && (
+            <div className="mb-6 w-full">
+              <h2 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-[#a78bfa]" />
+                Agent Research Report
+              </h2>
+              <div className="prose prose-invert prose-sm max-w-none p-6 rounded-xl border border-[#7c3aed]/30 bg-[#0f0f0f] whitespace-pre-wrap">
+                {agentSummary}
+              </div>
+            </div>
+          )}
 
-          {/* Empty */}
-          {hasSearched && !loading && videos.length === 0 && !error && (
+          {!agentMode && <VideoGrid videos={videos} loading={loading} />}
+
+          {!loading && videos.length === 0 && hasSearched && !agentSummary && !error && (
             <div className="text-center py-20">
               <p className="text-[#555] text-sm">No results found</p>
-              <p className="text-[#444] text-xs mt-1">Try different keywords or a different URL</p>
             </div>
           )}
         </main>
+
+        {/* Agent Logs Sidebar */}
+        {(agentMode || agentLogs.length > 0) && hasSearched && (
+          <aside className="w-80 flex-shrink-0 flex flex-col h-[calc(100vh-8rem)]">
+            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-[#1e1e1e]">
+              <TerminalSquare className="w-4 h-4 text-[#a78bfa]" />
+              <h3 className="font-semibold text-white text-sm">Agent Thoughts</h3>
+              {loading && <span className="ml-auto w-2 h-2 rounded-full bg-[#7c3aed] animate-pulse" />}
+            </div>
+            
+            <div ref={logContainerRef} className="flex-1 overflow-y-auto space-y-3 font-mono text-[11px] pr-2 custom-scrollbar">
+              {agentLogs.map((log, idx) => (
+                <div key={idx} className={`p-2.5 rounded-lg border ${
+                  log.type === 'tool_call' ? 'bg-[#1a1a1a] border-[#333] text-[#ddd]' :
+                  log.type === 'tool_result' ? 'bg-[#0f0f0f] border-[#222] text-[#888]' :
+                  log.type === 'status' ? 'bg-[#7c3aed]/10 border-[#7c3aed]/30 text-[#a78bfa]' :
+                  log.type === 'error' ? 'bg-[#ff3c3c]/10 border-[#ff3c3c]/30 text-[#ff8888]' :
+                  'bg-[#111] border-[#222] text-white'
+                }`}>
+                  <div className="flex items-center gap-1.5 mb-1 font-semibold uppercase opacity-80">
+                    {log.type === 'tool_call' && <Sparkles className="w-3 h-3" />}
+                    {log.type === 'tool_result' && <CheckCircle2 className="w-3 h-3" />}
+                    {log.type === 'error' && <AlertCircle className="w-3 h-3" />}
+                    {log.type}
+                  </div>
+                  <div className="break-words whitespace-pre-wrap">{log.message}</div>
+                  {log.data && (
+                    <div className="mt-1.5 p-1.5 bg-black/40 rounded text-[#666] break-all">
+                      {typeof log.data === 'object' ? JSON.stringify(log.data) : log.data}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </aside>
+        )}
       </div>
     </div>
   )

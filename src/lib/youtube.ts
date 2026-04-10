@@ -95,3 +95,41 @@ export function timeAgo(dateStr: string): string {
   const years = Math.floor(months / 12)
   return years === 1 ? '1 year ago' : `${years} years ago`
 }
+
+export async function getChannelStats(channelId: string) {
+  const res = await fetch(
+    `${BASE_URL}/channels?part=snippet,statistics&id=${channelId}&key=${API_KEY}`
+  )
+  const data = await res.json()
+  if (!data.items?.length) return null
+  const item = data.items[0]
+  return {
+    id: item.id,
+    title: item.snippet.title,
+    description: item.snippet.description,
+    subscriberCount: parseInt(item.statistics.subscriberCount || '0'),
+    viewCount: parseInt(item.statistics.viewCount || '0'),
+    videoCount: parseInt(item.statistics.videoCount || '0'),
+  }
+}
+
+export async function getRecentChannelVideos(channelId: string, maxResults = 5) {
+  const searchRes = await fetch(
+    `${BASE_URL}/search?part=id&channelId=${channelId}&maxResults=${maxResults}&order=date&type=video&key=${API_KEY}`
+  )
+  const searchData = await searchRes.json()
+  if (!searchData.items?.length) return []
+
+  const videoIds = searchData.items.map((item: any) => item.id.videoId).join(',')
+  const videoRes = await fetch(
+    `${BASE_URL}/videos?part=snippet,statistics&id=${videoIds}&key=${API_KEY}`
+  )
+  const videoData = await videoRes.json()
+
+  return videoData.items.map((item: any) => ({
+    id: item.id,
+    title: item.snippet.title,
+    viewCount: parseInt(item.statistics.viewCount || '0'),
+    publishedAt: item.snippet.publishedAt,
+  }))
+}
