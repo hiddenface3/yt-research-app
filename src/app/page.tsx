@@ -21,7 +21,7 @@ type Video = {
 }
 
 type AgentLog = {
-  type: 'status' | 'thought' | 'tool_call' | 'tool_result' | 'final' | 'error'
+  type: 'status' | 'thought' | 'tool_call' | 'tool_result' | 'final' | 'error' | 'videos'
   message: string
   data?: any
 }
@@ -137,7 +137,7 @@ export default function Home() {
                 // To avoid duplicate videos, merge based on video_id
                 setVideos((prev) => {
                   const existingIds = new Set(prev.map(v => v.video_id))
-                  const newVideos = log.data.filter(v => v.video_id && !existingIds.has(v.video_id))
+                  const newVideos = log.data.filter((v: Video) => v.video_id && !existingIds.has(v.video_id))
                   return [...prev, ...newVideos]
                 })
               } else if (log.type === 'final') {
